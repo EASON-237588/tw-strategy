@@ -145,7 +145,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '012';
+const BUILD_NO = '013';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -610,9 +610,9 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
         <div class="ln">體質 <span class="grade ${f.lv === '強' ? 'g3' : 'g2'}">${f.lv}</span>　ROE <b>${f.roe === null ? '—' : f.roe + '%'}</b>（平均 ${f.roeA === null ? '—' : f.roeA + '%'}）　營收五年 <b>${f.g === null ? '—' : pct(f.g)}</b>${f.bank ? '' : `　營益率 <b>${f.om === null ? '—' : f.om + '%'}</b>　負債比 <b>${f.debt === null ? '—' : f.debt + '%'}</b>`}</div>
         <div class="ln">${f.pts.map(p => esc(p[1])).join('；')}</div>
         ${b ? `<div class="ln">近 3 年主策略 <b class="${cls(b.ret)}">${pct(b.ret)}</b>（抱著 ${pct(b.bh)}）　最慘回落 ${pctU(b.mdd)}／${pctU(b.bhMdd)}　${b.n} 筆</div>` : ''}</div>`; };
-    out.innerHTML = `<div class="note" style="margin-bottom:8px"><b>${ymd(j.date)}</b> 收盤掃描（${esc(j.gen)} 產生）：上市櫃 ${j.n_scan} 檔，主策略轉做多 <b>${j.n_flip}</b> 檔，其中財報健全 <b class="up">${P.length}</b> 檔。
+    out.innerHTML = `<div class="note" style="margin-bottom:8px"><b>${ymd(j.date)}</b> 收盤掃描（${esc(j.gen)} 產生）：上市櫃 ${j.n_scan} 檔，主策略轉做多 <b>${j.n_flip}</b> 檔，其中財報體質強 <b class="up">${P.length}</b> 檔。
       大盤目前 ${j.ix_long ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(j.ix_since)} 起）${j.ix_long ? '' : '，大盤空方時主策略不會轉多'}。</div>
-      ${P.length ? P.map(card).join('') : '<div class="loading">這一天沒有財報健全又剛轉做多的股票。</div>'}
+      ${P.length ? P.map(card).join('') : '<div class="loading">這一天沒有財報體質強又剛轉做多的股票。</div>'}
       <details><summary>轉多但沒入選（${(j.rejects || []).length} 檔）</summary><div class="rej">${(j.rejects || []).map(r => `${esc(r.name)} ${r.id}：${esc(r.why)}`).join('<br>')}</div></details>
       <div class="note" style="margin-top:8px">篩選條件：${esc(j.rule)}。點一檔看個股細節。這是數據篩選，不是買賣建議。</div>`;
     out.querySelectorAll('.pick').forEach(el => { el.onclick = () => { switchPg('one'); show(el.dataset.id); }; });
