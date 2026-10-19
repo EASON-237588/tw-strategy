@@ -131,7 +131,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '008';
+const BUILD_NO = '009';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -142,8 +142,15 @@ const CFG = {
   FM: 'https://api.finmindtrade.com/api/v4/data',
   VER_URL: 'https://eason-237588.github.io/tw-strategy/version.json',   // 線上版本檔（build_web.py 產生）
   DEFAULT_LIST: ['3362', '6209', '2368', '2409', '1815', '6226', '2317', '2330', '2356', '2357',
-                 '2401', '2495', '2884', '5483', '6121', '6126', '6214', '6284', '8271']
+                 '2401', '2495', '2884', '5483', '6121', '6126', '6214', '6284', '8271',
+                 '00631L', 'TAIEX', '2454', 'F000014SAY'],
+  // 115/10/19 加入的自選：已經用過的裝置開新版時一次性補進（不動使用者自己加減的部分）
+  WATCH_ADD: { 'add-1019': ['00631L', 'TAIEX', '2330', '2454', 'F000014SAY'] },
+  FUND_URL: 'https://tw-quote.eason-237588.workers.dev/?fund='   // 台股趨勢儀表板的轉接站，代抓 Yahoo 基金淨值
 };
+
+// 不是一般股票的商品：種類 E＝ETF（沒有財報）、I＝指數、F＝基金（只有每日淨值）
+const EXTRA = [['00631L', '元大台灣50正2', 'L'], ['TAIEX', '加權指數', 'I'], ['F000014SAY', '高股息龍頭 B', 'F', '元大台灣高股息優質龍頭基金 B 類型（月配息）']];
 
 // 主推排第一個；只做多（轉空就空手）
 const STRATS = [
@@ -186,7 +193,8 @@ function rmax(x, n) {
 }
 function rmin(x, n) { return rmax(x.map(v => -v), n).map(v => v === null ? null : -v); }
 
-function calcRF(B, per, mult, mode) {
+function calcRF(B, per, mult, mode, useVol) {
+  useVol = useVol !== false;   // 基金只有淨值、沒有成交量 → 關掉成交量過濾（同台股趨勢第五格）
   const n = B.length, src = B.map(b => (b.h + b.l) / 2);
   const diff = [null]; for (let i = 1; i < n; i++) diff.push(Math.abs(src[i] - src[i - 1]));
   const sm = ema(ema(diff, per), per * 2 - 1).map(v => v === null ? null : v * mult);
@@ -208,7 +216,7 @@ function calcRF(B, per, mult, mode) {
     const lc = f !== null && s > f && moved && up > 0, sc = f !== null && s < f && moved && dn > 0;
     const a = atr[i], c = B[i].c;
     const lf = a !== null && c > c - a * 1.5, sf = a !== null && c < c + a * 1.5;
-    const vok = vm[i] !== null && B[i].v > vm[i] * 0.8;
+    const vok = !useVol || (vm[i] !== null && B[i].v > vm[i] * 0.8);
     const ls = lc && lf && vok, ss = sc && sf && vok;
     const pci = ci; ci = ls ? 1 : (ss ? -1 : pci);
     if (ls && pci === -1) cur = 1; else if (ss && pci === 1) cur = -1;
@@ -258,7 +266,7 @@ function perf(B, pos, start, end) {
 }
 
 /* ── 資料：FinMind 原始日線＋除權息結果 → 還原價（同 Yahoo adjclose 做法）── */
-function adjust(raw, divs) {
+function adjust(raw, divs, lim) {
   // raw: [{d,o,h,l,c,v}] 依日期；divs: 除權息結果 [{date,before_price,after_price}]
   const B = raw.map(b => Object.assign({}, b));
   divs.forEach(x => {
@@ -266,7 +274,7 @@ function adjust(raw, divs) {
     const f = x.after_price / x.before_price;
     for (const b of B) { if (b.d < x.date) { b.o *= f; b.h *= f; b.l *= f; b.c *= f; } }
   });
-  return repair(B);
+  return repair(B, lim);
 }
 // 分割／減資造成的跳空（超過漲跌幅上限且之後停在新水準）→ 之前整段等比例調整；隔天彈回 → 刪掉該日
 function repair(B, lim) {
@@ -290,10 +298,10 @@ function sinceOf(B, pos) {
 }
 
 // 一檔股票套全部策略：B 個股還原日線、IX 加權指數日線
-function evaluate(B, IX) {
+function evaluate(B, IX, useVol) {
   const ipos = calcRF(IX, 15, 4, 'long').pos, imap = {};
   IX.forEach((b, i) => { imap[b.d] = ipos[i]; });
-  const rfb = calcRF(B, 15, 4, 'both'), rfl = { pos: rfb.pos.map(p => p > 0 ? 1 : 0), warm: rfb.warm };
+  const rfb = calcRF(B, 15, 4, 'both', useVol), rfl = { pos: rfb.pos.map(p => p > 0 ? 1 : 0), warm: rfb.warm };
   const mk = { pos: rfl.pos.map((p, i) => (p > 0 && (imap[B[i].d] || 0) > 0) ? 1 : 0), warm: rfb.warm };
   const P = { mk, rfl, dnl: calcDon(B, 20, 'long') };
   const out = {};
@@ -316,7 +324,10 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   const $ = s => document.querySelector(s);
   const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 空間不足就不快取 */ } } };
-  const NAME = {}; STOCKS.forEach(s => { NAME[s[0]] = s; });
+  const NAME = {}; STOCKS.forEach(s => { NAME[s[0]] = s; }); EXTRA.forEach(s => { NAME[s[0]] = s; });
+  // 商品種類：S 股票、E ETF（00 開頭，沒有財報）、I 指數、F 基金
+  const kindOf = id => { const t = (NAME[id] || [])[2]; return t === 'I' || t === 'F' ? t : (/^00/.test(id) ? 'E' : 'S'); };
+  const ID_RE = /^[0-9A-Z]{4,10}$/;
   const pct = (v, d) => v === null || v === undefined || isNaN(v) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d === undefined ? 0 : d) + '%';
   const pctU = v => v === null || v === undefined || isNaN(v) ? '—' : (v * 100).toFixed(0) + '%';
   const cls = v => v > 0 ? 'up' : (v < 0 ? 'dn' : 'mut');
@@ -328,6 +339,10 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
 
   /* ── 自選清單 ── */
   let WATCH = LS.get('tsa-watch', CFG.DEFAULT_LIST);
+  // 一次性補進新加的自選（已經用過的裝置），補過就記下來不再補
+  (function () { const done = LS.get('tsa-watch-added', []); let ch = false;
+    Object.keys(CFG.WATCH_ADD).forEach(k => { if (done.includes(k)) return; CFG.WATCH_ADD[k].forEach(id => { if (!WATCH.includes(id)) { WATCH.push(id); ch = true; } }); done.push(k); });
+    LS.set('tsa-watch-added', done); if (ch) LS.set('tsa-watch', WATCH); })();
   function saveWatch() { LS.set('tsa-watch', WATCH); drawChips(); }
   function drawChips() {
     $('#chips').innerHTML = WATCH.map(id => `<button class="chip${id === CUR ? ' on' : ''}" data-id="${id}">${esc((NAME[id] || [id, id])[1])}</button>`).join('');
@@ -352,11 +367,18 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   const getIX = () => cached('tsa-ix', async () => toBars(await fm('TaiwanStockPrice', 'TAIEX', CFG.FETCH_FROM)));
   const getPx = id => cached('tsa-px-' + id, async () => ({ raw: toBars(await fm('TaiwanStockPrice', id, CFG.FETCH_FROM)),
     dv: (await fm('TaiwanStockDividendResult', id, CFG.FETCH_FROM)).map(x => ({ date: x.date, before_price: x.before_price, after_price: x.after_price })) }));
+  const getFund = id => cached('tsa-fund-' + id, async () => {
+    const r = await fetch(CFG.FUND_URL + encodeURIComponent(id)); if (!r.ok) throw new Error('基金淨值讀取失敗（' + r.status + '）');
+    const j = await r.json(); return j.d.map((d, i) => ({ d, o: j.c[i], h: j.c[i], l: j.c[i], c: j.c[i], v: 0 })).filter(b => b.c > 0);
+  });
   async function analyzeTrend(id) {
-    const [IX, P] = await Promise.all([getIX(), getPx(id)]);
+    const k = kindOf(id), IX = await getIX();
+    if (k === 'I') { const B = IX.map(b => Object.assign({}, b)); return { B, IX, R: evaluate(B, IX), raw: IX, kind: k }; }
+    if (k === 'F') { const B = await getFund(id); if (B.length < 200) throw new Error('基金淨值資料不足'); return { B, IX, R: evaluate(B, IX, false), raw: B, kind: k, line: true }; }
+    const P = await getPx(id);
     if (P.raw.length < 200) throw new Error('日線資料不足（' + P.raw.length + ' 根），可能是新上市或代號錯誤');
-    const B = adjust(P.raw, P.dv);
-    return { B, IX, R: evaluate(B, IX), raw: P.raw };
+    const B = adjust(P.raw, P.dv, /^[0-9]{4,5}[LR]$/.test(id) ? 0.205 : 0.105);   // 槓桿／反向 ETF 漲跌幅上限 20%
+    return { B, IX, R: evaluate(B, IX), raw: P.raw, kind: k };
   }
 
   /* ── 財報（沿用 台股財報分析 的抓法與指標）── */
@@ -420,7 +442,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   /* ── 畫面：個股 ── */
   let CUR = null, SEQ = 0;
   async function show(id) {
-    id = String(id).trim(); if (!id) return;
+    id = String(id).trim().toUpperCase(); if (!id) return;
     CUR = id; drawChips(); location.hash = id; $('#sug').hidden = true; $('#q').value = '';
     const my = ++SEQ, info = NAME[id] || [id, id, ''];
     $('#out').innerHTML = `<div class="loading">讀取 ${esc(info[1])}（${id}）日線中…</div>`;
@@ -428,8 +450,9 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
     try { T = await analyzeTrend(id); } catch (e) { if (my === SEQ) $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
     if (my !== SEQ) return;
     $('#out').innerHTML = trendHTML(id, info, T) + `<div class="card" id="fin"><h2>財報優勢</h2><div class="loading">讀取財報中…</div></div>`;
-    chartRanges(T.B, T.R.mk.pos); drawChart($('#cv'), T.B, T.R.mk.pos);
+    LINE = !!T.line; chartRanges(T.B, T.R.mk.pos); drawChart($('#cv'), T.B, T.R.mk.pos);
     $('#star').onclick = () => { const i = WATCH.indexOf(id); if (i >= 0) WATCH.splice(i, 1); else WATCH.push(id); saveWatch(); $('#star').classList.toggle('on', WATCH.includes(id)); $('#star').textContent = WATCH.includes(id) ? '★ 已在自選' : '☆ 加入自選'; };
+    if (T.kind !== 'S') { $('#fin').innerHTML = `<h2>財報優勢</h2><div class="note">${T.kind === 'E' ? 'ETF' : (T.kind === 'I' ? '指數' : '基金')}沒有公司財報。${id === '00631L' ? '<br>正 2 在 2026/3/24～3/31 停牌 1 拆 22，分割修正會把停牌期間的漲跌一起抹平，那一天的報酬略有失真。' : ''}${T.kind === 'F' ? '<br>基金一天一個淨值（晚上公布），K 棒改畫成線，策略不看成交量；資料由台股趨勢儀表板的轉接站代抓。' : ''}</div>`; return; }
     try { const F = await analyzeFin(id); if (my === SEQ) $('#fin').innerHTML = finHTML(id, F); }
     catch (e) { if (my === SEQ) $('#fin').innerHTML = `<h2>財報優勢</h2><div class="err">${esc(e.message)}</div>`; }
   }
@@ -445,7 +468,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
     const tr = m.all.trades.slice().reverse().map(t => `<tr><td>${yd(t.ed)}</td><td>${num(t.ep, t.ep < 100 ? 2 : 1)}</td><td>${t.open ? '持有中' : yd(t.xd)}</td><td>${num(t.xp, t.xp < 100 ? 2 : 1)}</td><td class="${cls(t.r)}">${pct(t.r, 1)}</td></tr>`).join('');
     return `
 <div class="card">
-  <div class="head"><span class="nm">${esc(info[1])}</span><span class="id">${id}${info[2] === 'O' ? '　上櫃' : (info[2] === 'L' ? '　上市' : '')}</span>
+  <div class="head"><span class="nm">${esc(info[1])}</span><span class="id">${id === 'TAIEX' || T.kind === 'F' ? '' : id}${({ I: '　指數', F: '　基金', E: '　ETF' })[T.kind] || (info[2] === 'O' ? '　上櫃' : (info[2] === 'L' ? '　上市' : ''))}</span>
     <span class="px ${cls(chg)}">${num(rawLast.c, rawLast.c < 100 ? 2 : 1)} <small>${pct(chg, 1)}</small></span></div>
   <div class="note">${md(lastB.d)} 收盤　｜　大盤（加權 RF 15/4）目前 ${R.ixNow.now ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(R.ixNow.since)} 起）
     <button id="star" class="star${on ? ' on' : ''}">${on ? '★ 已在自選' : '☆ 加入自選'}</button></div>
@@ -462,12 +485,12 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   <div class="note" style="margin-top:6px">${verdict}前段 ${pct(m.h1.ret)}（抱著 ${pct(m.h1.bh)}）、後段 ${pct(m.h2.ret)}（抱著 ${pct(m.h2.bh)}）${m.h1.ret > 0 && m.h2.ret > 0 ? '，兩段都賺。' : '，<b>不是兩段都賺</b>。'}</div>
   <div class="scroll"><table><thead><tr><th>策略</th><th>報酬</th><th>回落</th><th>前段</th><th>後段</th><th>筆數</th><th>勝率</th></tr></thead>
   <tbody>${STRATS.map(s => row(s, R[s.k])).join('')}<tr><td>買進抱著</td><td class="${cls(a.bh)}">${pct(a.bh)}</td><td>${pctU(a.bhMdd)}</td><td class="${cls(m.h1.bh)}">${pct(m.h1.bh)}</td><td class="${cls(m.h2.bh)}">${pct(m.h2.bh)}</td><td>—</td><td>—</td></tr></tbody></table></div>
-  <div class="note">前段 ${ymd(CFG.START)}～${ymd(CFG.MID)}、後段 ${ymd(CFG.MID)} 起。</div>
+  <div class="note">前段 ${ymd(CFG.START)}～${ymd(CFG.MID)}、後段 ${ymd(CFG.MID)} 起。${T.line ? '基金報酬以淨值計、不含每月配息，策略與抱著都一樣低估。' : ''}</div>
 </div>
 <div class="card">
   <h2>K 棒<span class="kst">${esc(STRATS[0].name)}</span><span class="r" id="rng"></span></h2>
   <canvas id="cv"></canvas>
-  <div class="legend"><b class="up">紅＝持有</b>、<b class="dn">綠＝空手</b>；空心＝收紅、實心＝收黑；價格已除權息還原</div>
+  <div class="legend"><b class="up">紅＝持有</b>、<b class="dn">綠＝空手</b>；${T.line ? '基金淨值畫成線；淨值未加回配息，報酬不含配息' : '空心＝收紅、實心＝收黑；價格已除權息還原'}</div>
 </div>
 <div class="card">
   <h2>策略進出<span class="kst">${esc(STRATS[0].name)}</span><span class="r note">${m.all.n} 筆，新的在上</span></h2>
@@ -494,7 +517,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
 
   /* ── K 棒圖：K 棒與背景依主策略上色（紅＝持有、綠＝空手），照台股趨勢儀表板不畫濾網線與進出點 ── */
   const RANGES = [['3月', 63], ['6月', 126], ['1年', 250], ['3年', 0]];
-  let RNG = LS.get('tsa-rng', 126);
+  let RNG = LS.get('tsa-rng', 126), LINE = false;
   function drawChart(cv, B, pos) {
     const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
     cv.width = w * dpr; cv.height = h * dpr; const g = cv.getContext('2d'); g.scale(dpr, dpr);
@@ -506,7 +529,10 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
     g.strokeStyle = '#2a3542'; g.lineWidth = 1; g.font = '10px Consolas, monospace'; g.fillStyle = '#8b98a5'; g.textAlign = 'left';
     for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, yy = y(v); g.beginPath(); g.moveTo(pl, yy); g.lineTo(w - pr, yy); g.stroke(); g.fillText(v >= 100 ? v.toFixed(0) : v.toFixed(1), w - pr + 4, yy + 3); }
     const bw = Math.max(1, Math.min(9, cw * 0.7));
-    for (let i = 0; i < n; i++) {
+    if (LINE) {   // 基金只有淨值：畫線，每段依主策略上色
+      g.lineWidth = 1.6;
+      for (let i = 1; i < n; i++) { g.strokeStyle = P[i] > 0 ? '#ff4d4d' : '#2ecc71'; g.beginPath(); g.moveTo(x(i - 1), y(X[i - 1].c)); g.lineTo(x(i), y(X[i].c)); g.stroke(); }
+    } else for (let i = 0; i < n; i++) {
       const b = X[i], col = P[i] > 0 ? '#ff4d4d' : '#2ecc71', cx = x(i);
       g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1;
       g.beginPath(); g.moveTo(cx, y(b.h)); g.lineTo(cx, y(b.l)); g.stroke();
@@ -544,14 +570,15 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   /* ── 搜尋與分頁 ── */
   function suggest(q) {
     q = q.trim(); if (!q) return [];
-    return STOCKS.filter(s => s[0].startsWith(q) || s[1].includes(q)).slice(0, 12);
+    const Q = q.toUpperCase();
+    return EXTRA.concat(STOCKS).filter(s => s[0].startsWith(Q) || s[1].includes(q)).slice(0, 12);
   }
   $('#q').oninput = () => {
     const L = suggest($('#q').value), box = $('#sug');
-    box.innerHTML = L.map(s => `<div data-id="${s[0]}"><b>${s[0]}</b>${esc(s[1])}<i>${s[2] === 'O' ? '上櫃' : '上市'}</i></div>`).join('');
+    box.innerHTML = L.map(s => `<div data-id="${s[0]}"><b>${s[0]}</b>${esc(s[1])}<i>${({ O: '上櫃', L: '上市', I: '指數', F: '基金' })[s[2]] || ''}</i></div>`).join('');
     box.hidden = !L.length;
   };
-  $('#q').onkeydown = e => { if (e.key === 'Enter') { const L = suggest($('#q').value); if (L.length) show(L[0][0]); else if (/^\d{4,6}$/.test($('#q').value.trim())) show($('#q').value.trim()); } };
+  $('#q').onkeydown = e => { if (e.key === 'Enter') { const L = suggest($('#q').value); if (L.length) show(L[0][0]); else if (ID_RE.test($('#q').value.trim().toUpperCase())) show($('#q').value.trim()); } };
   $('#sug').onclick = e => { const d = e.target.closest('[data-id]'); if (d) show(d.dataset.id); };
   function switchPg(pg) {
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.pg === pg));
@@ -578,10 +605,10 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVer(); });
   setTimeout(checkVer, 3000);
 
-  window.addEventListener('hashchange', () => { const x = location.hash.replace('#', ''); if (/^\d{4,6}$/.test(x) && x !== CUR) show(x); });
+  window.addEventListener('hashchange', () => { const x = location.hash.replace('#', ''); if (ID_RE.test(x) && x !== CUR) show(x); });
   drawChips();
   const h = location.hash.replace('#', '');
-  show(/^\d{4,6}$/.test(h) ? h : WATCH[0] || '2330');
+  show(ID_RE.test(h) ? h : WATCH[0] || '2330');
 })();
 </script>
 </body>
