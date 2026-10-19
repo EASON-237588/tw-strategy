@@ -90,12 +90,22 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
 }
 #newver{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:20;background:#d32f2f;color:#fff;font-weight:700;text-align:center;padding:14px;border-radius:12px;font-size:16px;box-shadow:0 4px 18px rgba(0,0,0,.5);animation:nvb 1.2s ease-in-out infinite alternate}
 @keyframes nvb{from{opacity:1}to{opacity:.75}}
+.cnt{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--yellow);color:#000;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.tabs button.blink{animation:chb 1s ease-in-out infinite;border-color:#ff5b5b}
+@keyframes chb{0%,100%{background:#c62828;color:#fff}50%{background:var(--panel2);color:var(--yellow)}}
+.pick{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.pick .t{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.pick .nm{font-size:18px;font-weight:700}.pick .id{color:var(--sub);font-family:Consolas,monospace}
+.pick .px{margin-left:auto;font-family:Consolas,monospace;font-size:16px}
+.pick .ln{font-size:13px;color:var(--sub);margin-top:6px;line-height:1.6}
+.pick .ln b{color:var(--tx)}
+.rej{font-size:12px;color:var(--sub);line-height:1.8}
 </style>
 </head>
 <body>
 <header class="top">
   <div class="brand">台股策略分析 <span class="bv" id="bv"></span></div>
-  <nav class="tabs"><button data-pg="one" class="on">個股</button><button data-pg="all">總表</button></nav>
+  <nav class="tabs"><button data-pg="one" class="on">個股</button><button data-pg="all">總表</button><button data-pg="chance" id="tabChance">有機會做多<span class="cnt" id="chCnt" hidden></span></button></nav>
 </header>
 
 <main>
@@ -106,6 +116,10 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
     </div>
     <div id="chips" class="chips"></div>
     <div id="out"></div>
+  </section>
+
+  <section id="pg-chance" class="pg" hidden>
+    <div id="chOut"><div class="loading">讀取每日掃描結果…</div></div>
   </section>
 
   <section id="pg-all" class="pg" hidden>
@@ -131,7 +145,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '010';
+const BUILD_NO = '011';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -353,7 +367,9 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   /* ── 抓資料（FinMind，快取 6 小時）── */
   const TTL = 6 * 3600e3;
   async function fm(ds, id, start) {
-    const r = await fetch(`${CFG.FM}?dataset=${ds}&data_id=${encodeURIComponent(id)}&start_date=${start}`);
+    let r;
+    try { r = await fetch(`${CFG.FM}?dataset=${ds}&data_id=${encodeURIComponent(id)}&start_date=${start}`); }
+    catch (e) { throw new Error('資料來源暫時抓不到，可能是 FinMind 免費額度用完（同一個網路一小時約 300 次），請稍後再試'); }
     if (r.status === 402 || r.status === 429) throw new Error('FinMind 免費額度暫時用完了，請過幾分鐘再試');
     const j = await r.json();
     if (j.status && j.status !== 200) throw new Error('資料來源回應：' + (j.msg || j.status));
@@ -568,6 +584,37 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   }
   $('#allRun').onclick = runAll;
 
+  /* ── 有機會做多：讀每日掃描結果 chance.json（每日掃描.py 收盤後產生），有新結果時分頁按鈕閃爍 ── */
+  let CH = null;
+  async function loadChance() {
+    try {
+      const j = await (await fetch('chance.json?t=' + Date.now(), { cache: 'no-store' })).json();
+      CH = j; const n = (j.picks || []).length, seen = LS.get('tsa-ch-seen', '');
+      $('#chCnt').hidden = !n; $('#chCnt').textContent = n;
+      $('#tabChance').classList.toggle('blink', n > 0 && seen !== j.date && $('#pg-chance').hidden);
+      if (!$('#pg-chance').hidden) { drawChance(); LS.set('tsa-ch-seen', j.date); }
+    } catch (e) { CH = CH || { err: '還沒有掃描結果（每日收盤後由電腦產生）' }; if (!$('#pg-chance').hidden) drawChance(); }
+  }
+  function drawChance() {
+    const j = CH, out = $('#chOut');
+    if (!j || j.err) { out.innerHTML = `<div class="err">${esc((j && j.err) || '讀取中…')}</div>`; return; }
+    const P = j.picks || [];
+    const card = x => { const f = x.fin, b = x.bt;
+      return `<div class="pick" data-id="${x.id}"><div class="t"><span class="badge long">做多</span><span class="nm">${esc(x.name)}</span><span class="id">${x.id}${x.mkt === 'O' ? '　上櫃' : '　上市'}</span>
+        <span class="px ${cls(x.chg)}">${num(x.close, x.close < 100 ? 2 : 1)} <small>${pct(x.chg, 1)}</small></span></div>
+        <div class="ln">體質 <span class="grade ${f.lv === '強' ? 'g3' : 'g2'}">${f.lv}</span>　ROE <b>${f.roe === null ? '—' : f.roe + '%'}</b>（平均 ${f.roeA === null ? '—' : f.roeA + '%'}）　營收五年 <b>${f.g === null ? '—' : pct(f.g)}</b>${f.bank ? '' : `　營益率 <b>${f.om === null ? '—' : f.om + '%'}</b>　負債比 <b>${f.debt === null ? '—' : f.debt + '%'}</b>`}</div>
+        <div class="ln">${f.pts.map(p => esc(p[1])).join('；')}</div>
+        ${b ? `<div class="ln">近 3 年主策略 <b class="${cls(b.ret)}">${pct(b.ret)}</b>（抱著 ${pct(b.bh)}）　最慘回落 ${pctU(b.mdd)}／${pctU(b.bhMdd)}　${b.n} 筆</div>` : ''}</div>`; };
+    out.innerHTML = `<div class="note" style="margin-bottom:8px"><b>${ymd(j.date)}</b> 收盤掃描（${esc(j.gen)} 產生）：上市櫃 ${j.n_scan} 檔，主策略轉做多 <b>${j.n_flip}</b> 檔，其中財報健全 <b class="up">${P.length}</b> 檔。
+      大盤目前 ${j.ix_long ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(j.ix_since)} 起）${j.ix_long ? '' : '，大盤空方時主策略不會轉多'}。</div>
+      ${P.length ? P.map(card).join('') : '<div class="loading">這一天沒有財報健全又剛轉做多的股票。</div>'}
+      <details><summary>轉多但沒入選（${(j.rejects || []).length} 檔）</summary><div class="rej">${(j.rejects || []).map(r => `${esc(r.name)} ${r.id}：${esc(r.why)}`).join('<br>')}</div></details>
+      <div class="note" style="margin-top:8px">篩選條件：${esc(j.rule)}。點一檔看個股細節。這是數據篩選，不是買賣建議。</div>`;
+    out.querySelectorAll('.pick').forEach(el => { el.onclick = () => { switchPg('one'); show(el.dataset.id); }; });
+  }
+  setInterval(() => { if (!document.hidden) loadChance(); }, 5 * 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadChance(); });
+
   /* ── 搜尋與分頁 ── */
   function suggest(q) {
     q = q.trim(); if (!q) return [];
@@ -583,7 +630,8 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   $('#sug').onclick = e => { const d = e.target.closest('[data-id]'); if (d) show(d.dataset.id); };
   function switchPg(pg) {
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.pg === pg));
-    $('#pg-one').hidden = pg !== 'one'; $('#pg-all').hidden = pg !== 'all';
+    $('#pg-one').hidden = pg !== 'one'; $('#pg-all').hidden = pg !== 'all'; $('#pg-chance').hidden = pg !== 'chance';
+    if (pg === 'chance') { $('#tabChance').classList.remove('blink'); drawChance(); if (CH && CH.date) LS.set('tsa-ch-seen', CH.date); }
     if (pg === 'all' && !$('#allOut').children.length) runAll();
   }
   document.querySelectorAll('.tabs button').forEach(b => { b.onclick = () => switchPg(b.dataset.pg); });
@@ -607,7 +655,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   setTimeout(checkVer, 3000);
 
   window.addEventListener('hashchange', () => { const x = location.hash.replace('#', ''); if (ID_RE.test(x) && x !== CUR) show(x); });
-  drawChips();
+  drawChips(); loadChance();
   const h = location.hash.replace('#', '');
   show(ID_RE.test(h) ? h : WATCH[0] || '2330');
 })();
