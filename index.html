@@ -131,7 +131,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '009';
+const BUILD_NO = '010';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -154,10 +154,11 @@ const EXTRA = [['00631L', '元大台灣50正2', 'L'], ['TAIEX', '加權指數', 
 
 // 主推排第一個；只做多（轉空就空手）
 const STRATS = [
-  { k: 'mk',   name: 'RF＋大盤 只做多', desc: 'Range Filter 15/4，且加權指數 RF 15/4 也是多方才做多', long: true, main: true },
-  { k: 'rfl',  name: 'RF 只做多',       desc: 'Range Filter 15/4，看個股自己的日線', long: true },
-  { k: 'dnl',  name: '通道20 只做多',   desc: '突破 20 日高點做多，跌破 10 日低點或 8 倍 ATR 停損出場', long: true }
+  { k: 'mk',   name: 'RF＋大盤 只做多', desc: 'Range Filter 15/4，且加權指數 RF 15/4 也是多方才做多', long: true, main: true }
 ];
+// 115/10/19 只留 RF＋大盤（使用者同意）：上市櫃 1,859 檔近 3 年，RF＋大盤 有 88% 的股票最慘回落比抱著小、中位回落 36%、
+// 大賠（< −30%）13%；RF 只做多與它訊號 93% 相同且每項都較差（74%／41%／19%），通道20 每項也較差（82%／37%／18%）。
+// 算法（calcRF、calcDon）保留給 驗證.js 與日後比較用。
 // 多空都做（RF、通道20）115/10/19 使用者要求拿掉：19 檔評估大多賠錢、最慘回落 50～89%，個股不做空。
 
 /* ── 指標工具（照 策略.py）── */
@@ -303,7 +304,7 @@ function evaluate(B, IX, useVol) {
   IX.forEach((b, i) => { imap[b.d] = ipos[i]; });
   const rfb = calcRF(B, 15, 4, 'both', useVol), rfl = { pos: rfb.pos.map(p => p > 0 ? 1 : 0), warm: rfb.warm };
   const mk = { pos: rfl.pos.map((p, i) => (p > 0 && (imap[B[i].d] || 0) > 0) ? 1 : 0), warm: rfb.warm };
-  const P = { mk, rfl, dnl: calcDon(B, 20, 'long') };
+  const P = { mk };
   const out = {};
   for (const s of STRATS) {
     const { pos, warm } = P[s.k];
