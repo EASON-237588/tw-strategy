@@ -105,11 +105,11 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
 <body>
 <header class="top">
   <div class="brand">台股策略分析 <span class="bv" id="bv"></span></div>
-  <nav class="tabs"><button data-pg="one" class="on">個股</button><button data-pg="all">總表</button><button data-pg="chance" id="tabChance">有機會做多<span class="cnt" id="chCnt" hidden></span></button></nav>
+  <nav class="tabs"><button data-pg="all" class="on">總表</button><button data-pg="one">個股</button><button data-pg="chance" id="tabChance">有機會做多<span class="cnt" id="chCnt" hidden></span></button></nav>
 </header>
 
 <main>
-  <section id="pg-one" class="pg">
+  <section id="pg-one" class="pg" hidden>
     <div class="search">
       <input id="q" type="search" inputmode="search" autocomplete="off" placeholder="輸入代號或名稱，例如 2330、台積電">
       <div id="sug" class="sug" hidden></div>
@@ -122,7 +122,7 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
     <div id="chOut"><div class="loading">讀取每日掃描結果…</div></div>
   </section>
 
-  <section id="pg-all" class="pg" hidden>
+  <section id="pg-all" class="pg">
     <div class="bar">
       <div class="note" id="allNote">自選清單每一檔的主策略（RF＋大盤 只做多）目前狀態。</div>
       <button id="allRun" class="btn">更新總表</button>
@@ -145,7 +145,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '013';
+const BUILD_NO = '014';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -663,6 +663,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   drawChips(); loadChance();
   const h = location.hash.replace('#', '');
   show(ID_RE.test(h) ? h : WATCH[0] || '2330');
+  switchPg('all');   // 打開時先停在總表（個股在背景載好，切過去不用等）
 })();
 </script>
 </body>
