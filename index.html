@@ -145,7 +145,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '011';
+const BUILD_NO = '012';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -155,11 +155,14 @@ const CFG = {
   COST: 0.0038,             // 每筆來回：手續費＋證交稅
   FM: 'https://api.finmindtrade.com/api/v4/data',
   VER_URL: 'https://eason-237588.github.io/tw-strategy/version.json',   // 線上版本檔（build_web.py 產生）
-  DEFAULT_LIST: ['3362', '6209', '2368', '2409', '1815', '6226', '2317', '2330', '2356', '2357',
-                 '2401', '2495', '2884', '5483', '6121', '6126', '6214', '6284', '8271',
-                 '00631L', 'TAIEX', '2454', 'F000014SAY'],
+  DEFAULT_LIST: ['2330', '2368', '2454', '00631L', 'TAIEX', 'F000014SAY'],
   // 115/10/19 加入的自選：已經用過的裝置開新版時一次性補進（不動使用者自己加減的部分）
   WATCH_ADD: { 'add-1019': ['00631L', 'TAIEX', '2330', '2454', 'F000014SAY'] },
+  // 115/10/19 使用者要求自選股「只留財報體質強的」（台積電、金像電、聯發科；正 2、加權、高股息基金沒有財報，保留）。
+  // 移除：體質弱 先進光、友達、光鼎、英業達、凌陽；體質中 今國光、富喬、鴻海、華碩、普安、玉山金、中美晶、新普、信音、精誠、佳邦、宇瞻。
+  // 已用過的裝置一次性移除，之後自己加回不再刪
+  WATCH_DEL: { 'keep-strong-1019': ['3362', '2409', '6226', '2356', '2401', '6209', '1815', '2317', '2357', '2495',
+                                    '2884', '5483', '6121', '6126', '6214', '6284', '8271'] },
   FUND_URL: 'https://tw-quote.eason-237588.workers.dev/?fund='   // 台股趨勢儀表板的轉接站，代抓 Yahoo 基金淨值
 };
 
@@ -357,6 +360,8 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   // 一次性補進新加的自選（已經用過的裝置），補過就記下來不再補
   (function () { const done = LS.get('tsa-watch-added', []); let ch = false;
     Object.keys(CFG.WATCH_ADD).forEach(k => { if (done.includes(k)) return; CFG.WATCH_ADD[k].forEach(id => { if (!WATCH.includes(id)) { WATCH.push(id); ch = true; } }); done.push(k); });
+    // 一次性移除（例如財報不好的），移過就記下來，之後使用者自己加回不再刪
+    Object.keys(CFG.WATCH_DEL || {}).forEach(k => { if (done.includes(k)) return; const n0 = WATCH.length; WATCH = WATCH.filter(id => !CFG.WATCH_DEL[k].includes(id)); ch = ch || WATCH.length !== n0; done.push(k); });
     LS.set('tsa-watch-added', done); if (ch) LS.set('tsa-watch', WATCH); })();
   function saveWatch() { LS.set('tsa-watch', WATCH); drawChips(); }
   function drawChips() {
