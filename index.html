@@ -124,7 +124,7 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
 
   <section id="pg-all" class="pg">
     <div class="bar">
-      <div class="note" id="allNote">自選清單每一檔的主策略（RF＋大盤 只做多）目前狀態。</div>
+      <div class="note" id="allNote">自選清單每一檔的主策略（RF 只做多）目前狀態。</div>
       <button id="allRun" class="btn">更新總表</button>
     </div>
     <div id="allOut"></div>
@@ -145,7 +145,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '015';
+const BUILD_NO = '016';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -155,9 +155,12 @@ const CFG = {
   COST: 0.0038,             // 每筆來回：手續費＋證交稅
   FM: 'https://api.finmindtrade.com/api/v4/data',
   VER_URL: 'https://eason-237588.github.io/tw-strategy/version.json',   // 線上版本檔（build_web.py 產生）
-  DEFAULT_LIST: ['TAIEX', '00631L', 'F000014SAY', 'F0HKG05X1T', '2330', '2454', '2368'],
+  DEFAULT_LIST: ['TAIEX', '00631L', 'F000014SAY', 'F0HKG05X1T', '2330', '2454', '2368',
+                 '0050', '006208', '0056', '00878', '00919', '00900'],
   // 115/10/19 加入的自選：已經用過的裝置開新版時一次性補進（不動使用者自己加減的部分）
-  WATCH_ADD: { 'add-1019': ['00631L', 'TAIEX', '2330', '2454', 'F000014SAY'], 'add-fubon-test': ['F0HKG05X1T'] },
+  // 115/10/23 加入富邦上選 A；同日加入六檔 ETF（市值型 0050、006208；高股息 0056、00878、00919、00900）
+  WATCH_ADD: { 'add-1019': ['00631L', 'TAIEX', '2330', '2454', 'F000014SAY'], 'add-fubon-test': ['F0HKG05X1T'],
+               'add-etf-1023': ['0050', '006208', '0056', '00878', '00919', '00900'] },
   // 115/10/19 使用者要求自選股「只留財報體質強的」（台積電、金像電、聯發科；正 2、加權、高股息基金沒有財報，保留）。
   // 移除：體質弱 先進光、友達、光鼎、英業達、凌陽；體質中 今國光、富喬、鴻海、華碩、普安、玉山金、中美晶、新普、信音、精誠、佳邦、宇瞻。
   // 已用過的裝置一次性移除，之後自己加回不再刪
@@ -167,12 +170,17 @@ const CFG = {
 };
 
 // 不是一般股票的商品：種類 E＝ETF（沒有財報）、I＝指數、F＝基金（只有每日淨值）
-const EXTRA = [['00631L', '元大台灣50正2', 'L'], ['TAIEX', '加權指數', 'I'], ['F000014SAY', '高股息龍頭 B', 'F', '元大台灣高股息優質龍頭基金 B 類型（月配息）'], ['F0HKG05X1T', '富邦上選 A', 'F', '富邦上選基金（A 類型）']];
+const EXTRA = [['00631L', '元大台灣50正2', 'L'], ['TAIEX', '加權指數', 'I'], ['F000014SAY', '高股息龍頭 B', 'F', '元大台灣高股息優質龍頭基金 B 類型（月配息）'], ['F0HKG05X1T', '富邦上選 A', 'F', '富邦上選基金（A 類型）'],
+  ['0050', '元大台灣50', 'E'], ['006208', '富邦台50', 'E'], ['0056', '元大高股息', 'E'],
+  ['00878', '國泰永續高股息', 'E'], ['00919', '群益台灣精選高息', 'E'], ['00900', '富邦特選高股息30', 'E']];
 
 // 主推排第一個；只做多（轉空就空手）
 const STRATS = [
-  { k: 'mk',   name: 'RF＋大盤 只做多', desc: 'Range Filter 15/4，且加權指數 RF 15/4 也是多方才做多', long: true, main: true }
+  { k: 'rfl',  name: 'RF 只做多', desc: 'Range Filter 15/4，看自己的日線：轉多就做多、轉空就空手（不看大盤）', long: true, main: true }
 ];
+// 115/10/23 使用者決定主策略拿掉大盤濾網：自選 13 檔、2003～2023/10 長期資料，歷史夠長的 7 檔裡「年化÷最大回落」
+// 不看大盤有 6 檔較好、1 檔打平（正 2 0.81 對 0.49）；大跌年濾網時有時無效（2008 有幫助、2018 反而更差）。
+// 下面 115/10/19 的全市場評估是當時選 RF＋大盤的根據，留著供對照。
 // 115/10/19 只留 RF＋大盤（使用者同意）：上市櫃 1,859 檔近 3 年，RF＋大盤 有 88% 的股票最慘回落比抱著小、中位回落 36%、
 // 大賠（< −30%）13%；RF 只做多與它訊號 93% 相同且每項都較差（74%／41%／19%），通道20 每項也較差（82%／37%／18%）。
 // 算法（calcRF、calcDon）保留給 驗證.js 與日後比較用。
@@ -317,11 +325,9 @@ function sinceOf(B, pos) {
 
 // 一檔股票套全部策略：B 個股還原日線、IX 加權指數日線
 function evaluate(B, IX, useVol) {
-  const ipos = calcRF(IX, 15, 4, 'long').pos, imap = {};
-  IX.forEach((b, i) => { imap[b.d] = ipos[i]; });
+  const ipos = calcRF(IX, 15, 4, 'long').pos;   // 大盤只拿來顯示目前多空，主策略不再參考
   const rfb = calcRF(B, 15, 4, 'both', useVol), rfl = { pos: rfb.pos.map(p => p > 0 ? 1 : 0), warm: rfb.warm };
-  const mk = { pos: rfl.pos.map((p, i) => (p > 0 && (imap[B[i].d] || 0) > 0) ? 1 : 0), warm: rfb.warm };
-  const P = { mk };
+  const P = { rfl };
   const out = {};
   for (const s of STRATS) {
     const { pos, warm } = P[s.k];
@@ -472,7 +478,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
     try { T = await analyzeTrend(id); } catch (e) { if (my === SEQ) $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
     if (my !== SEQ) return;
     $('#out').innerHTML = trendHTML(id, info, T) + `<div class="card" id="fin"><h2>財報優勢</h2><div class="loading">讀取財報中…</div></div>`;
-    LINE = !!T.line; chartRanges(T.B, T.R.mk.pos); drawChart($('#cv'), T.B, T.R.mk.pos);
+    LINE = !!T.line; chartRanges(T.B, T.R.rfl.pos); drawChart($('#cv'), T.B, T.R.rfl.pos);
     $('#star').onclick = () => { const i = WATCH.indexOf(id); if (i >= 0) WATCH.splice(i, 1); else WATCH.push(id); saveWatch(); $('#star').classList.toggle('on', WATCH.includes(id)); $('#star').textContent = WATCH.includes(id) ? '★ 已在自選' : '☆ 加入自選'; };
     if (T.kind !== 'S') { $('#fin').innerHTML = `<h2>財報優勢</h2><div class="note">${T.kind === 'E' ? 'ETF' : (T.kind === 'I' ? '指數' : '基金')}沒有公司財報。${id === '00631L' ? '<br>正 2 在 2026/3/24～3/31 停牌 1 拆 22，分割修正會把停牌期間的漲跌一起抹平，那一天的報酬略有失真。' : ''}${T.kind === 'F' ? '<br>基金一天一個淨值（晚上公布），K 棒改畫成線，策略不看成交量；資料由台股趨勢儀表板的轉接站代抓。' : ''}</div>`; return; }
     try { const F = await analyzeFin(id); if (my === SEQ) $('#fin').innerHTML = finHTML(id, F); }
@@ -481,7 +487,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   function badge(p, big) { return `<span class="badge ${p > 0 ? 'long' : (p < 0 ? 'short' : 'flat')}">${p > 0 ? '做多' : (p < 0 ? '做空' : '空手')}</span>`; }
   function trendHTML(id, info, T) {
     const { B, R } = T, lastB = B[B.length - 1], prev = B[B.length - 2], rawLast = T.raw[T.raw.length - 1];
-    const chg = lastB.c / prev.c - 1, m = R.mk, on = WATCH.includes(id);
+    const chg = lastB.c / prev.c - 1, m = R.rfl, on = WATCH.includes(id);
     const sig = (s, x) => `<div class="sig${s.main ? ' main' : ''}">${badge(x.now)}<div class="t"><b>${esc(s.name)}</b>　${x.now ? '' : ''}${md(x.since)} 起${x.now ? '，至今 <span class="' + cls(x.chg * x.now) + '">' + pct(x.chg * x.now, 1) + '</span>' : ''}<br>${esc(s.desc)}</div></div>`;
     const longS = STRATS;
     const row = (s, x) => `<tr><td>${esc(s.name)}</td><td class="${cls(x.all.ret)}">${pct(x.all.ret)}</td><td>${pctU(x.all.mdd)}</td><td class="${cls(x.h1.ret)}">${pct(x.h1.ret)}</td><td class="${cls(x.h2.ret)}">${pct(x.h2.ret)}</td><td>${x.all.n}</td><td>${x.all.n ? Math.round(x.all.win / x.all.n * 100) + '%' : '—'}</td></tr>`;
@@ -578,13 +584,13 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
     for (const id of WATCH) {
       const info = NAME[id] || [id, id], el = document.createElement('div'); el.className = 'row'; el.innerHTML = `<div class="nm">${esc(info[1])}</div><div class="r mut">讀取中…</div>`; out.appendChild(el);
       try {
-        const { R } = await analyzeTrend(id), m = R.mk, a = m.all;
+        const { R } = await analyzeTrend(id), m = R.rfl, a = m.all;
         el.innerHTML = `${badge(m.now)}<div><div class="nm">${esc(info[1])} <span class="mut" style="font-weight:400">${id}</span></div><div class="sub">${md(m.since)} 起${m.now ? '，至今 ' + pct(m.chg, 1) : ''}</div></div>
           <div class="r"><div>策略 <span class="${cls(a.ret)}">${pct(a.ret)}</span>／抱著 <span class="${cls(a.bh)}">${pct(a.bh)}</span></div><div class="mut">回落 ${pctU(a.mdd)}／${pctU(a.bhMdd)}${m.h1.ret > 0 && m.h2.ret > 0 ? '　兩段都賺' : ''}</div></div>`;
         el.onclick = () => { switchPg('one'); show(id); };
       } catch (e) { el.innerHTML = `<div class="nm">${esc(info[1])}</div><div class="r err">${esc(e.message)}</div>`; }
     }
-    $('#allNote').textContent = `自選 ${WATCH.length} 檔的主策略（RF＋大盤 只做多）目前狀態；點一列看細節。紅＝做多、綠＝空手。`;
+    $('#allNote').textContent = `自選 ${WATCH.length} 檔的主策略（RF 只做多）目前狀態；點一列看細節。紅＝做多、綠＝空手。`;
     btn.disabled = false;
   }
   $('#allRun').onclick = runAll;
@@ -611,7 +617,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
         <div class="ln">${f.pts.map(p => esc(p[1])).join('；')}</div>
         ${b ? `<div class="ln">近 3 年主策略 <b class="${cls(b.ret)}">${pct(b.ret)}</b>（抱著 ${pct(b.bh)}）　最慘回落 ${pctU(b.mdd)}／${pctU(b.bhMdd)}　${b.n} 筆</div>` : ''}</div>`; };
     out.innerHTML = `<div class="note" style="margin-bottom:8px"><b>${ymd(j.date)}</b> 收盤掃描（${esc(j.gen)} 產生）：上市櫃 ${j.n_scan} 檔，主策略轉做多 <b>${j.n_flip}</b> 檔，其中財報體質強 <b class="up">${P.length}</b> 檔。
-      大盤目前 ${j.ix_long ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(j.ix_since)} 起）${j.ix_long ? '' : '，大盤空方時主策略不會轉多'}。</div>
+      大盤目前 ${j.ix_long ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(j.ix_since)} 起），僅供參考，主策略不看大盤。</div>
       ${P.length ? P.map(card).join('') : '<div class="loading">這一天沒有財報體質強又剛轉做多的股票。</div>'}
       <details><summary>轉多但沒入選（${(j.rejects || []).length} 檔）</summary><div class="rej">${(j.rejects || []).map(r => `${esc(r.name)} ${r.id}：${esc(r.why)}`).join('<br>')}</div></details>
       <div class="note" style="margin-top:8px">篩選條件：${esc(j.rule)}。點一檔看個股細節。這是數據篩選，不是買賣建議。</div>`;
