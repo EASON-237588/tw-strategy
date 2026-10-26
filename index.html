@@ -90,6 +90,10 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
 .tile .ln{font-size:11.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .ln.err{padding:0}
 .tile .two{font-weight:400;color:var(--yellow)}
+/* 觀察用（2026-10-26）：主策略保護不了的檔，總表名稱旁小標籤、個股頁標題下一行提醒 */
+.obs{flex:none;font-size:10.5px;color:var(--yellow);border:1px solid var(--yellow);border-radius:5px;padding:0 4px;line-height:16px}
+.obsw{margin:8px 0 4px;padding:8px 10px;border:1px solid var(--yellow);border-radius:8px;background:rgba(255,214,0,.08);font-size:13px;line-height:1.6}
+.obsw b{color:var(--yellow)}
 .loading{color:var(--sub);padding:20px;text-align:center}
 .err{color:#ff8a80;padding:12px}
 .foot{max-width:760px;margin:0 auto;padding:10px 12px 24px;font-size:11px;color:var(--sub);line-height:1.7}
@@ -158,7 +162,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '017';
+const BUILD_NO = '018';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -179,6 +183,8 @@ const CFG = {
   // 已用過的裝置一次性移除，之後自己加回不再刪
   WATCH_DEL: { 'keep-strong-1019': ['3362', '2409', '6226', '2356', '2401', '6209', '1815', '2317', '2357', '2495',
                                     '2884', '5483', '6121', '6126', '6214', '6284', '8271'] },
+  // 115/10/26 細部分析（報告 1151026_自選13檔細部分析-02）：這兩檔主策略保護不了，總表與個股頁標「觀察用」，提醒看到訊號不要照做
+  OBSERVE: { '2454': '近 3 年回落 36% 比抱著 32% 還大，2025 年虧 12%', '2368': '近 3 年回落 41%、長期回落 69%，大跌年常保護不了' },
   FUND_URL: 'https://tw-quote.eason-237588.workers.dev/?fund='   // 台股趨勢儀表板的轉接站，代抓 Yahoo 基金淨值
 };
 
@@ -511,6 +517,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
 <div class="card">
   <div class="head"><span class="nm">${esc(info[1])}</span><span class="id">${id === 'TAIEX' || T.kind === 'F' ? '' : id}${({ I: '　指數', F: '　基金', E: '　ETF' })[T.kind] || (info[2] === 'O' ? '　上櫃' : (info[2] === 'L' ? '　上市' : ''))}</span>
     <span class="px ${cls(chg)}">${num(rawLast.c, rawLast.c < 100 ? 2 : 1)} <small>${pct(chg, 1)}</small></span></div>
+  ${CFG.OBSERVE[id] ? `<div class="obsw"><b>觀察用</b>：${esc(CFG.OBSERVE[id])}。主策略對這檔保護不了，看到訊號不要照做。</div>` : ''}
   <div class="note">${md(lastB.d)} 收盤　｜　大盤（加權 RF 15/4）目前 ${R.ixNow.now ? '<b class="up">多方</b>' : '<b class="dn">空方</b>'}（${md(R.ixNow.since)} 起）
     <button id="star" class="star${on ? ' on' : ''}">${on ? '★ 已在自選' : '☆ 加入自選'}</button></div>
   ${sig(STRATS[0], m)}
@@ -600,7 +607,7 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
       try {
         const { R } = await analyzeTrend(id), m = R.rfl, a = m.all;
         el.classList.add(m.now > 0 ? 'on' : 'off');
-        el.innerHTML = `<div class="t1">${badge(m.now)}<span class="nm">${esc(info[1])}</span></div>
+        el.innerHTML = `<div class="t1">${badge(m.now)}<span class="nm">${esc(info[1])}</span>${CFG.OBSERVE[id] ? '<span class="obs">觀察用</span>' : ''}</div>
           <div class="ln mut">${id.length <= 6 ? id + '・' : ''}${md(m.since)} 起${m.now ? ' ' + pct(m.chg, 1) : ''}</div>
           <div class="ln">策略 <span class="${cls(a.ret)}">${pct(a.ret)}</span>／抱 <span class="${cls(a.bh)}">${pct(a.bh)}</span></div>
           <div class="ln mut">回落 ${pctU(a.mdd)}／${pctU(a.bhMdd)}${m.h1.ret > 0 && m.h2.ret > 0 ? ' <b class="two">兩段賺</b>' : ''}</div>`;
