@@ -77,6 +77,19 @@ ul.pts{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7}
 .row .sub{font-size:12px;color:var(--sub);margin-top:2px}
 .row .badge{font-size:14px;padding:5px 8px}
 .row .r{margin-left:auto;text-align:right;font-family:Consolas,monospace;font-size:13px}
+/* 總表分格（2026-10-26）：兩欄，格高平分「畫面高－標題列－上下留白」，13 檔一頁放得下不用捲 */
+#pg-all:not([hidden]){display:flex;flex-direction:column;height:calc(100dvh - var(--toph,50px) - 24px);min-height:420px}
+#pg-all .bar{flex:none;margin-bottom:6px}
+#allNote{font-size:11px;line-height:1.4}
+#allOut{flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:6px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:4px 8px;display:flex;flex-direction:column;justify-content:center;gap:1px;overflow:hidden;cursor:pointer;min-width:0}
+.tile.on{border-color:rgba(255,91,91,.7)}
+.tile .t1{display:flex;align-items:center;gap:5px;min-width:0}
+.tile .nm{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .badge{font-size:11px;padding:1px 5px;flex:none}
+.tile .ln{font-size:11.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .ln.err{padding:0}
+.tile .two{font-weight:400;color:var(--yellow)}
 .loading{color:var(--sub);padding:20px;text-align:center}
 .err{color:#ff8a80;padding:12px}
 .foot{max-width:760px;margin:0 auto;padding:10px 12px 24px;font-size:11px;color:var(--sub);line-height:1.7}
@@ -145,7 +158,7 @@ const STOCKS = [["1101","台泥","L"],["1102","亞泥","L"],["1103","嘉泥","L"
 // 台股策略分析 — 設定、資料抓取與策略計算
 // 策略逐行照 策略.py（複製自 台股趨勢儀表板\回測\bt.py）移植；改這裡要同步改 策略.py 並跑 驗證.js 對帳。
 
-const BUILD_NO = '016';
+const BUILD_NO = '017';
 const BUILD_NAME = '初探';
 
 const CFG = {
@@ -582,15 +595,19 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   async function runAll() {
     const btn = $('#allRun'); btn.disabled = true; const out = $('#allOut'); out.innerHTML = '';
     for (const id of WATCH) {
-      const info = NAME[id] || [id, id], el = document.createElement('div'); el.className = 'row'; el.innerHTML = `<div class="nm">${esc(info[1])}</div><div class="r mut">讀取中…</div>`; out.appendChild(el);
+      // 分格（使用者 2026-10-26 要求「重新分格、不翻頁」）：兩欄小格，格高平分畫面剩下的高度
+      const info = NAME[id] || [id, id], el = document.createElement('div'); el.className = 'tile'; el.innerHTML = `<div class="t1"><span class="nm">${esc(info[1])}</span></div><div class="ln mut">讀取中…</div>`; out.appendChild(el);
       try {
         const { R } = await analyzeTrend(id), m = R.rfl, a = m.all;
-        el.innerHTML = `${badge(m.now)}<div><div class="nm">${esc(info[1])} <span class="mut" style="font-weight:400">${id}</span></div><div class="sub">${md(m.since)} 起${m.now ? '，至今 ' + pct(m.chg, 1) : ''}</div></div>
-          <div class="r"><div>策略 <span class="${cls(a.ret)}">${pct(a.ret)}</span>／抱著 <span class="${cls(a.bh)}">${pct(a.bh)}</span></div><div class="mut">回落 ${pctU(a.mdd)}／${pctU(a.bhMdd)}${m.h1.ret > 0 && m.h2.ret > 0 ? '　兩段都賺' : ''}</div></div>`;
+        el.classList.add(m.now > 0 ? 'on' : 'off');
+        el.innerHTML = `<div class="t1">${badge(m.now)}<span class="nm">${esc(info[1])}</span></div>
+          <div class="ln mut">${id.length <= 6 ? id + '・' : ''}${md(m.since)} 起${m.now ? ' ' + pct(m.chg, 1) : ''}</div>
+          <div class="ln">策略 <span class="${cls(a.ret)}">${pct(a.ret)}</span>／抱 <span class="${cls(a.bh)}">${pct(a.bh)}</span></div>
+          <div class="ln mut">回落 ${pctU(a.mdd)}／${pctU(a.bhMdd)}${m.h1.ret > 0 && m.h2.ret > 0 ? ' <b class="two">兩段賺</b>' : ''}</div>`;
         el.onclick = () => { switchPg('one'); show(id); };
-      } catch (e) { el.innerHTML = `<div class="nm">${esc(info[1])}</div><div class="r err">${esc(e.message)}</div>`; }
+      } catch (e) { el.innerHTML = `<div class="t1"><span class="nm">${esc(info[1])}</span></div><div class="ln err">${esc(e.message)}</div>`; }
     }
-    $('#allNote').textContent = `自選 ${WATCH.length} 檔的主策略（RF 只做多）目前狀態；點一列看細節。紅＝做多、綠＝空手。`;
+    $('#allNote').textContent = `自選 ${WATCH.length} 檔・主策略 RF 只做多・紅框＝做多・點格子看細節`;
     btn.disabled = false;
   }
   $('#allRun').onclick = runAll;
@@ -669,6 +686,9 @@ if (typeof module !== 'undefined') module.exports = { CFG, STRATS, calcRF, calcD
   drawChips(); loadChance();
   const h = location.hash.replace('#', '');
   show(ID_RE.test(h) ? h : WATCH[0] || '2330');
+  // 總表格子要扣掉標題列高度才放得進一頁；標題列在窄螢幕可能換行，用量的
+  const topH = () => document.documentElement.style.setProperty('--toph', $('.top').offsetHeight + 'px');
+  topH(); addEventListener('resize', topH);
   switchPg('all');   // 打開時先停在總表（個股在背景載好，切過去不用等）
 })();
 </script>
